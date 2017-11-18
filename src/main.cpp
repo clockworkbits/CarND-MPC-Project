@@ -12,6 +12,8 @@
 // for convenience
 using json = nlohmann::json;
 
+const double t_latency = 0.1;
+
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
@@ -91,6 +93,8 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+          double delta = j[1]["steering_angle"];
+          double acceleration = j[1]["throttle"];
 
           /*
           * TODO: Calculate steering angle and throttle using MPC.
@@ -115,15 +119,30 @@ int main() {
 
           auto coeffs = polyfit(ptsx_transform, ptsy_transform, 3);
 
+          const double Lf = 2.67;
+
           double cte = polyeval(coeffs, 0);
           double epsi = -atan(coeffs[1]);
 
           Eigen::VectorXd state(6);
-          state << 0, 0, 0, v, cte, epsi;
+
+          // Recall the equations for the model:
+          // x_[t+1] = x[t] + v[t] * cos(psi[t]) * dt
+          // y_[t+1] = y[t] + v[t] * sin(psi[t]) * dt
+          // psi_[t+1] = psi[t] + v[t] / Lf * delta[t] * dt
+          // v_[t+1] = v[t] + a[t] * dt
+          // cte[t+1] = f(x[t]) - y[t] + v[t] * sin(epsi[t]) * dt
+          // epsi[t+1] = psi[t] - psides[t] + v[t] * delta[t] / Lf * dt
+
+          // To handle the latency I set the initial state in the future (distant by t_latency from now).
+          state << 0 + v * t_latency, // cos(psi = 0) is 1
+              0, // sin(psi = 0) is 0
+              0 - v * delta / Lf * t_latency,
+              v + acceleration * t_latency,
+              cte,
+              epsi;
 
           auto vars = mpc.Solve(state, coeffs);
-
-          const double Lf = 2.67;
 
           const double steer_value = vars[0] / (deg2rad(25) * Lf);
           const double throttle_value = vars[1];
